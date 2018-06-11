@@ -1,0 +1,15 @@
+name: ftools
+channels:
+  - bioconda
+  - defaults
+  - conda-forge
+dependencies:
+  - bwa
+  - samtools
+  - ncurses
+  - bamtools
+  - vcftools
+  - MUSCLE
+  - FastTree
+  - vcfkit
+  - tabix

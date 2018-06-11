@@ -1,0 +1,258 @@
+# workflow to create phylogenetic tree from input fq files and reference fasta
+# Fiona Tamburini June 2018
+
+import os
+
+# read list of samples
+all_samples = []
+with open(config['all_samples']) as samples_list:
+	for line in samples_list:
+		sample = line.rstrip('\n')
+		all_samples += [sample]
+
+# samples meeting minimum coverage specified in config
+passed_samples = []
+try:
+	f = open('passed_samples.list')
+	for line in f:
+		sample = line.rstrip('\n')
+		passed_samples += [sample]
+except (IOError, OSError) as e:
+	print("Samples meeting {cvg}X coverage not yet determined".format(cvg=config['coverage_min']))
+else:
+	f.close()
+
+# handle interleaved vs separate fastq files
+if 'reads2' in config and not config['reads2'] == '':
+	reads = [config['reads1'], config['reads2']]
+else:
+	reads = [config['reads1']]
+
+# bwa index reference sequence
+rule bwa_index:
+	input: config['ref']
+	output:
+		"{ref}.amb".format(ref=config['ref']),
+		"{ref}.ann".format(ref=config['ref']),
+		"{ref}.bwt".format(ref=config['ref']),
+		"{ref}.pac".format(ref=config['ref']),
+		"{ref}.sa".format(ref=config['ref'])
+	shell:
+		"bwa index {input}"
+
+# align reads to indexed reference sequence
+rule bwa_align:
+    input:
+        ref = config['ref'],
+        ref_index = rules.bwa_index.output,
+        r = reads
+    output:
+        "bam/{sample}.bam"
+    resources:
+        mem=32,
+        time=6
+    threads: 8
+    shell:
+        "bwa mem -t {threads} {input.ref} {input.r} | "\
+        "samtools view -b --threads {threads} | "\
+        "samtools sort --threads {threads} -o {output}"
+
+# filter bam alignments
+# qual=40 -- minimum alignment mapq of 40
+# flags=2060 -- discard any reads that are unpaired, mate is unpaired, or
+# read is secondary alignment
+# nm=5 -- tolerate max 5 mismatches per read
+rule filter_bam:
+    input: rules.bwa_align.output
+    output: "filter_bam/{sample}.bam"
+	resources:
+		mem=8,
+		time=1
+	params:
+		qual=40,
+		flags=2060,
+		nm=5
+	shell:
+		"samtools view -b -q {params.qual} -F {params.flags} {input} | "\
+		"bamtools filter -tag 'NM:<={params.nm}' -out {output}"
+
+# determine average coverage of an alignment
+rule coverage:
+	input: rules.filter_bam.output
+	output: "cvg/{sample}.cvg"
+	resources:
+		mem=4,
+		time=1
+	shell:
+		"samtools depth {input} | awk '{{total += $3 }} END {{ if (total > 0) "\
+		"print total/NR; else print 0}}' > {output}"
+
+# filter samples based on minimum depth of coverage specified in config
+rule filter_coverage:
+	input: expand("cvg/{sample}.cvg", sample = all_samples)
+	output: "passed_samples.list"
+	resources:
+		mem=2,
+		time=1
+	params:
+		cvg=config['coverage_min']
+	shell:
+		"paste <(cat cvg/*.cvg) <(ls cvg/*.cvg | sed -E 's/cvg\/|.cvg//g') | "\
+		"awk '$1 >= {params.cvg} {{print $2}}' > {output}"
+
+
+## phylogenetic tree workflow
+# index reference
+rule faidx:
+    input: config['ref']
+    output: "{ref}.fai".format(ref=config['ref'])
+    shell:
+        "samtools faidx {input}"
+
+# create samtools pileup from filtered bam
+rule pileup:
+	input:
+		ref=config['ref'],
+		idx=rules.faidx.output,
+		bam=rules.filter_bam.output
+	output: "pileup/{sample}.mpileup"
+	resources:
+		mem=8,
+		time=2
+	shell:
+		"samtools mpileup -f {input.ref} {input.bam} > {output}"
+
+# call variants from pileup with varscan, output vcf
+rule call_variants:
+	input: rules.pileup.output
+	output: "vcf/{sample}.vcf.gz"
+	resources:
+		mem=8,
+		time=2
+	params:
+		min_cvg=5,
+		min_var_freq=0.8,
+		s_filter=0
+	shell:
+		"java -jar /home/tamburin/bhatt/fiona/tools/varscan/VarScan.v2.3.9.jar "\
+		"mpileup2snp {input} --min-coverage {params.min_cvg} "\
+		"--min-var-freq {params.min_var_freq} --strand-filter {params.s_filter} "\
+		"--output-vcf | sed 's/Sample1/{wildcards.sample}/' | bgzip -c > {output}; "\
+		"tabix {output}"
+
+# rule tabix:
+# 	input: rules.call_variants.output
+# 	output: "vcf/{sample}.vcf.gz.tbi"
+# 	resources:
+# 		mem=2,
+# 		time=1
+# 	shell:
+# 		"tabix -p vcf {input}"
+
+# merge vcf files to multi vcf for all samples that meet coverage minimum
+rule merge_vcf:
+	input:
+		# i=expand("vcf/{sample}.vcf.gz.tbi", sample = passed_samples),
+		v=expand("vcf/{sample}.vcf.gz", sample = passed_samples),
+		f=rules.filter_coverage.output
+	output: "{n}.vcf.gz".format(n=config['tree_name'])
+	resources:
+		mem=32,
+		time=4
+	shell:
+		"vcf-merge {input.v} | bgzip -c > {output}; tabix -p vcf {output}"
+
+# create multifasta file from vcf
+rule phylo_fasta:
+	input: rules.merge_vcf.output
+	output: "{n}.fasta".format(n=config['tree_name'])
+	resources:
+		mem=32,
+		time=1
+	shell:
+		"python /home/tamburin/.local/lib/python2.7/site-packages/vcfkit/vk.py phylo fasta {input} > {output}"
+
+# perform multiple sequnece alignment from fasta
+rule multi_align:
+	input: rules.phylo_fasta.output
+	output: "{n}.afa".format(n=config['tree_name'])
+	resources:
+		mem=100,
+		time=4
+	shell:
+		"muscle -in {input} -out {output}"
+
+# create approximate maximum likelihood tree from multi alignment
+rule tree:
+	input: rules.multi_align.output
+	output: "{n}.tree".format(n=config['tree_name'])
+	resources:
+		mem=16,
+		time=1
+	shell:
+		"fasttree -nt {input} > {output}"
+
+# calculate pairwise SNV distance between two samples
+rule pairwise_dist:
+	input: "vcf/{sample1}.vcf.gz", "vcf/{sample2}.vcf.gz"
+	output: "dist/{sample1}.{sample2}.tsv"
+	resources:
+		mem=1,
+		time=1
+	shell:
+		"printf '{wildcards.sample1}\t{wildcards.sample2}\t' > {output}; "\
+		"vcf-compare {input} | grep ^VN | cut -f2 | head -2 | "\
+		"awk '{{sum += $1}} END {{print sum}}' >> {output}"
+
+# calculate pairwise SNV distance between all pairs of samples
+rule pairwise_dist_all:
+	input: expand("dist/{sample1}.{sample2}.tsv", sample1 = passed_samples, sample2 = passed_samples)
+	output: "pairwise_dist.tsv"
+	shell:
+		"cat {input} | awk '$1 != $2 {{print $0}}' > {output}"
+
+
+## de novo assembly workflow -- CAUTION this is almost certainly broken
+## in several places
+
+# convert bam alignments to fastq
+rule bam_to_fq:
+    input: rules.filter_bam.output
+    output: "fq/{sample}_R1.fq", "fq/{sample}_R2.fq"
+	resources:
+		mem=8,
+		time=1
+	shell:
+		"samtools bam2fq -1 fq/{wildcards.sample}_unfilt_R1.fq -2 fq/{wildcards.sample}_unfilt_R2.fq {input}; "\
+		"fastqutils properpairs fq/{wildcards.sample}_unfilt_R1.fq fq/{wildcards.sample}_unfilt_R2.fq {output}; "
+		"rm fq/{wildcards.sample}_unfilt_*.fq"
+
+# assemble aligned reads
+rule assemble:
+	input:
+		r1="fq/{sample}_R1.fq",
+		r2="fq/{sample}_R2.fq"
+	output: "spades/{sample}/contigs.fasta"
+	resources:
+		mem=16,
+		time=12
+	shell:
+		"spades.py -1 {input.r1} -2 {input.r2} -m {resources.mem} -o spades/{wildcards.sample}"
+
+rule finish:
+    input: expand("cvg/{sample}.cvg", sample = all_samples)
+    output: "done.tsv"
+    resources:
+        mem=1,
+        time=1
+    shell:
+        "touch {output}"
+
+rule finish_assemblies:
+    input: expand("spades/{sample}/contigs.fasta", sample = passed_samples)
+    output: "assemblies_done.tsv"
+    resources:
+        mem=1,
+        time=1
+    shell:
+        "touch {output}"

@@ -1,0 +1,2 @@
+SyntaxError in line 73 of /home/tamburin/fiona/crassphage/workflows/snv_phylo/Snakefile:
+Unexpected keyword time in rule definition (Snakefile, line 73)

@@ -1,0 +1,5 @@
+read_length: 100
+assembly: assembly_links/{foo}.fasta
+sample: foo
+reads1: readlinks/{foo}.fq.gz
+krakendb: /home/tamburin/bhatt/data/program_indices/kraken/kraken_custom/
