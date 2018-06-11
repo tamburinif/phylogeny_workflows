@@ -10,7 +10,7 @@
         wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh
         bash Miniconda3-latest-Linux-x86_64.sh
 
-2. Clone the StrainSifter workflow to the directory where you wish to run the pipeline:
+2. Clone workflow to the directory where you wish to run the pipeline:
 
         git clone https://github.com/tamburinif/phylogeny_workflows
 
