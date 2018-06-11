@@ -10,4 +10,4 @@ Activate env (always)
 
 Run pipeline
 
-    snakemake crassphage.tree -s Snakefile --configfile config.yaml --restart-times 1 --profile scg -j 999 --rerun-incomplete --latency-wait 10
+    snakemake ref.tree -s Snakefile --configfile config.yaml --restart-times 1 --profile scg -j 999 --rerun-incomplete --latency-wait 10
