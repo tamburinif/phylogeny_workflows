@@ -1,6 +1,0 @@
-all_samples: /home/tamburin/fiona/crassphage/sequenced_samples.list
-coverage_min: 5
-ref: /home/tamburin/fiona/crassphage/ref/crassphage.fasta
-reads1: /home/tamburin/fiona/crassphage/trimmed_reads/{sample}_PE1.fq
-reads2: /home/tamburin/fiona/crassphage/trimmed_reads/{sample}_PE2.fq
-tree_name: crassphage
