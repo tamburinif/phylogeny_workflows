@@ -35,6 +35,8 @@ Activate the environment:
 
 You must update the config.yaml file to include the filepaths to your reference genome assembly, a list of samples, and the directory containing the input samples.
 
+If your reads are paired-end, params 'reads1' and 'reads2' should point to directories with forward and reverse reads respectively. If working with single-end or interleaved files, point to those in 'reads1' and leave 'reads2' blank.
+
 ### Running phylogeny workflow
 
 Run as follows:
