@@ -1,0 +1,6 @@
+all_samples: /path/to/samples.list
+coverage_min: 5
+ref: /path/to/ref.fasta
+reads1: /path/to/{sample}_PE1.fq
+reads2: /path/to/{sample}_PE2.fq
+tree_name: ref
