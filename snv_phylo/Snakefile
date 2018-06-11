@@ -77,6 +77,7 @@ rule filter_bam:
 		"bamtools filter -tag 'NM:<={params.nm}' -out {output}"
 
 # determine average coverage of an alignment
+# TODO: institute a minimum percent of the genome to be covered
 rule coverage:
 	input: rules.filter_bam.output
 	output: "cvg/{sample}.cvg"
@@ -138,7 +139,7 @@ rule call_variants:
 		"mpileup2snp {input} --min-coverage {params.min_cvg} "\
 		"--min-var-freq {params.min_var_freq} --strand-filter {params.s_filter} "\
 		"--output-vcf | sed 's/Sample1/{wildcards.sample}/' | bgzip -c > {output}; "\
-		"tabix {output}"
+		"tabix -p vcf {output}"
 
 # rule tabix:
 # 	input: rules.call_variants.output
@@ -160,7 +161,7 @@ rule merge_vcf:
 		mem=32,
 		time=4
 	shell:
-		"vcf-merge {input.v} | bgzip -c > {output}; tabix -p vcf {output}"
+		"bcftools merge -0 {input.v} | bgzip -c > {output}; tabix -p vcf {output}"
 
 # create multifasta file from vcf
 rule phylo_fasta:
@@ -170,7 +171,7 @@ rule phylo_fasta:
 		mem=32,
 		time=1
 	shell:
-		"python /home/tamburin/.local/lib/python2.7/site-packages/vcfkit/vk.py phylo fasta {input} > {output}"
+		"vk phylo fasta {input} > {output}"
 
 # perform multiple sequnece alignment from fasta
 rule multi_align:

@@ -8,7 +8,7 @@ dependencies:
   - samtools
   - ncurses
   - bamtools
-  - vcftools
+  - bcftools
   - MUSCLE
   - FastTree
   - vcfkit
