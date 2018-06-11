@@ -19,6 +19,10 @@
         cd phylogeny_workflows
         conda env create -f envs/environment.yaml
 
+Conda env can be updates as follows:
+
+        conda env update -f envs/environment.yaml
+
 #### (Every time)
 Activate the environment:
 
