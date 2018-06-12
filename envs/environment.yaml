@@ -9,6 +9,7 @@ dependencies:
   - ncurses
   - bamtools
   - bcftools
+  - vcftools
   - MUSCLE
   - FastTree
   - vcfkit
