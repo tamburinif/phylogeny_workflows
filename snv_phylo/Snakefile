@@ -18,7 +18,7 @@ try:
 		sample = line.rstrip('\n')
 		passed_samples += [sample]
 except (IOError, OSError) as e:
-	print("Samples meeting {cvg}X coverage not yet determined".format(cvg=config['coverage_min']))
+	print("Samples meeting {cvg}X coverage not yet determined".format(cvg=config['min_coverage']))
 else:
 	f.close()
 
@@ -77,16 +77,27 @@ rule filter_bam:
 		"bamtools filter -tag 'NM:<={params.nm}' -out {output}"
 
 # determine average coverage of an alignment
+rule depth:
+	input: rules.filter_bam.output
+	output: "depth/{sample}.tsv"
+	resources:
+		mem=4,
+		time=1
+	shell:
+		"samtools depth -a {input} > {output}"
+
 # TODO: institute a minimum percent of the genome to be covered
 rule coverage:
-	input: rules.filter_bam.output
+	input: rules.depth.output
 	output: "cvg/{sample}.cvg"
 	resources:
 		mem=4,
 		time=1
 	shell:
-		"samtools depth {input} | awk '{{total += $3 }} END {{ if (total > 0) "\
-		"print total/NR; else print 0}}' > {output}"
+		"printf \"$(cat {input} | awk '{{ total += $3 }} END "\
+		"{{ if (total > 0) print total/NR; else print 0}}')\t\" > {output}; "\
+		"cat {input} | awk '{{if ($3 > 5) total++ }} END "\
+		"{{ if (total > 0) print total/NR; else print 0}}' >> {output}"
 
 # filter samples based on minimum depth of coverage specified in config
 rule filter_coverage:
@@ -96,10 +107,11 @@ rule filter_coverage:
 		mem=2,
 		time=1
 	params:
-		cvg=config['coverage_min']
+		cvg=config['min_coverage'],
+		prop=config['min_genome_prop']
 	shell:
 		"paste <(cat cvg/*.cvg) <(ls cvg/*.cvg | sed -E 's/cvg\/|.cvg//g') | "\
-		"awk '$1 >= {params.cvg} {{print $2}}' > {output}"
+		"awk '($1 >= {params.cvg}) && ($2 >= {params.prop}) {{print $3}}' > {output}"
 
 
 ## phylogenetic tree workflow
