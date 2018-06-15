@@ -230,31 +230,81 @@ rule pairwise_dist_all:
 
 # convert bam alignments to fastq
 rule bam_to_fq:
-    input: rules.filter_bam.output
-    output: "fq/{sample}_R1.fq", "fq/{sample}_R2.fq"
+	input: rules.bwa_align.output
+	output:
+		f1="crass_fq/{sample}_unfilt_1.fq",
+		f2="crass_fq/{sample}_unfilt_2.fq",
+		filt=expand("crass_fq/{{sample}}_{pe}.fq", pe=[1, 2])
 	resources:
-		mem=8,
+		mem=16,
 		time=1
 	shell:
-		"samtools bam2fq -1 fq/{wildcards.sample}_unfilt_R1.fq -2 fq/{wildcards.sample}_unfilt_R2.fq {input}; "\
-		"fastqutils properpairs fq/{wildcards.sample}_unfilt_R1.fq fq/{wildcards.sample}_unfilt_R2.fq {output}; "
-		"rm fq/{wildcards.sample}_unfilt_*.fq"
+		"samtools view -b -F 12 {input} | "\
+		"samtools fastq -1 {output.f1} -2 {output.f2} -; "\
+		"fastqutils properpairs {output.f1} {output.f2} {output.filt}"
+		# "samtools view -b -F 12 {input} | samtools sort -n | "\
+		# "bedtools bamtofastq -i - -fq /dev/stdout > {output}"
 
 # assemble aligned reads
 rule assemble:
-	input:
-		r1="fq/{sample}_R1.fq",
-		r2="fq/{sample}_R2.fq"
+	input: rules.bam_to_fq.output['filt']
 	output: "spades/{sample}/contigs.fasta"
 	resources:
 		mem=16,
 		time=12
 	shell:
-		"spades.py -1 {input.r1} -2 {input.r2} -m {resources.mem} -o spades/{wildcards.sample}"
+		"spades.py -1 {input[0]} -2 {input[1]} -m {resources.mem} -o spades/{wildcards.sample}"
+
+rule symlink_drafts:
+	input: rules.assemble.output
+	output: "drafts/{sample}.fasta"
+	shell:
+		"ln -s $PWD/{input} {output}"
+
+rule symlink_all:
+	input: expand("drafts/{sample}.fasta", sample=passed_samples)
+	output: "linked"
+	shell:
+		"touch {output}"
+
+rule scaffold:
+	input:
+		draft=rules.symlink_drafts.output,
+		links=rules.symlink_all.output
+	output: "scaffolds/{sample}.fasta"
+	resources:
+		mem=8,
+		time=1
+	shell:
+		"java -jar ~/fiona/tools/medusa/medusa.jar "\
+		"-scriptPath ~/fiona/tools/medusa/medusa_scripts/ -f ref/ "\
+		"-i {input.draft} -o {output}"
+
+rule close_gaps:
+	input: "scaffolds/{sample}.fasta"
+	output: "concat_genomes/{sample}.fasta"
+	shell:
+		"grep -v \"^>\" {input} | awk 'BEGIN {{ ORS=\"\"; "\
+		"print \">{wildcards.sample}\\n\" }} {{ print }} {{ print \"\\n\"}}' > {output}"
+
+rule multi_fasta:
+	input: expand("concat_genomes/{sample}.fasta", sample=passed_samples)
+	output: "scaffolds.fasta"
+	shell:
+		"cat {input} > {output}"
+
+rule align:
+	input: rules.multi_fasta.output
+	output: "scaffolds.afa"
+	resources:
+		mem=200,
+		time=6
+	shell:
+		"muscle -in {input} -out {output}"
 
 rule finish:
-    input: expand("cvg/{sample}.cvg", sample = all_samples)
-    output: "done.tsv"
+    input: expand("cvg/{sample}.cvg", sample=all_samples)
+    output: "done"
     resources:
         mem=1,
         time=1
@@ -262,8 +312,8 @@ rule finish:
         "touch {output}"
 
 rule finish_assemblies:
-    input: expand("spades/{sample}/contigs.fasta", sample = passed_samples)
-    output: "assemblies_done.tsv"
+    input: expand("spades/{sample}/contigs.fasta", sample=passed_samples)
+    output: "assemblies_done"
     resources:
         mem=1,
         time=1
