@@ -1,3 +1,0 @@
-KeyError in line 6 of /labs/asbhatt/fiona/crassphage/workflows/find_cr_contigs/Snakefile:
-'samples'
-  File "/labs/asbhatt/fiona/crassphage/workflows/find_cr_contigs/Snakefile", line 6, in <module>
